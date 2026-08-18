@@ -1,93 +1,89 @@
 import streamlit as st
 import pandas as pd
-import datetime
 
-# Configuración de página
-st.set_page_config(page_title="Bunker - Control de Ventas", page_icon="🍔", layout="centered")
+# Configuración de la página
+st.set_page_config(page_title="Bunker - Gestión de Costos", layout="wide")
 
-# Estilos personalizados
-st.markdown("""
-<style>
-    .main-header { font-size: 2.2rem; font-weight: bold; color: #E63946; text-align: center; margin-bottom: 0px; }
-    .sub-header { font-size: 1rem; color: #8D99AE; text-align: center; margin-bottom: 20px; }
-    .stButton>button { width: 100%; background-color: #E63946; color: white; border-radius: 8px; font-weight: bold; height: 3em; }
-    .metric-card { background-color: #1E1E1E; padding: 15px; border-radius: 10px; border: 1px solid #333; text-align: center; }
-</style>
-""", unsafe_allow_html=True)
+st.title("🍔 Bunker - Control de Costos y Precios")
+st.caption("Modificá los precios base en la barra lateral para recalcular todo el menú al instante.")
 
-# Título Principal
-st.markdown("<div class='main-header'>🍔 BUNKER</div>", unsafe_allow_html=True)
-st.markdown("<div class='sub-header'>CONTROL DE VENTAS Y COSTOS</div>", unsafe_allow_html=True)
+# ==========================================
+# 1. MATRIZ DE INSUMOS BASE (Sidebar)
+# ==========================================
+st.sidebar.header("⚙️ Precios Base de Insumos")
 
-# Base de datos local de Combos (Precios y Costos para ganancia exacta)
-COMBOS = {
-    "Simple Bunker": {"precio": 6300, "costo": 2100},
-    "Doble Bunker": {"precio": 8200, "costo": 2800},
-    "Triple Bunker": {"precio": 9900, "costo": 3500},
-    "Combo Extremo": {"precio": 12500, "costo": 4200}
-}
+precio_carne = st.sidebar.number_input("Medallón de Carne 90g ($)", value=1260.82, step=50.0)
+precio_pan = st.sidebar.number_input("Pan de Papa 10cm ($)", value=410.00, step=20.0)
+precio_cheddar = st.sidebar.number_input("Queso Cheddar (feta) ($)", value=151.12, step=10.0)
+precio_panceta = st.sidebar.number_input("Panceta Ahumada ($)", value=282.62, step=20.0)
+precio_provolone = st.sidebar.number_input("Queso Dambo / Provo ($)", value=151.12, step=10.0)
+precio_papas = st.sidebar.number_input("Papas 150g ($)", value=780.00, step=50.0)
 
-# Inicializar historial de ventas en la sesión
-if 'ventas' not in st.session_state:
-    st.session_state.ventas = []
+st.sidebar.divider()
+st.sidebar.header("📈 Márgenes y Comisiones")
+multiplicador_margen = st.sidebar.number_input("Multiplicador de Costo (Ej: 3x)", value=3.0, step=0.1)
+comision_pedidosya = st.sidebar.slider("Comisión PedidosYa (%)", min_value=15.0, max_value=35.0, value=30.0) / 100
 
-# Solapas principales
-tab1, tab2, tab3 = st.tabs(["⚡ Despacho Rápido", "🧮 Calculadora", "📊 Resumen diario"])
+# Packaging e insumos fijos promedio por combo (Caja, papel, sobres, potes)
+costo_packaging_fijo = 1500.00
 
-# --- TAB 1: DESPACHO RÁPIDO ---
-with tab1:
-    st.subheader("Cargar Venta")
-    combo_sel = st.selectbox("Combo", list(COMBOS.keys()))
-    cantidad = st.number_input("Cantidad", min_value=1, value=1, step=1)
-    metodo_pago = st.radio("Método de pago", ["Efectivo", "Transferencia / QR"], horizontal=True)
+# ==========================================
+# 2. LÓGICA DE CÁLCULO DE RECETAS
+# ==========================================
+def calcular_costo_combo(medallones, cheddar, panceta=0, es_provo=False, incluye_papas=True):
+    queso_costo = precio_provolone if es_provo else precio_cheddar
+    costo_hamb = (medallones * precio_carne) + precio_pan + (cheddar * queso_costo) + (panceta * precio_panceta)
+    costo_extra = precio_papas if incluye_papas else 0
+    return costo_hamb + costo_extra + costo_packaging_fijo
+
+# Definición de la carta de combos
+combos = [
+    {"Nombre": "Combo Bunker Simple", "Medallones": 1, "Cheddar": 2, "Panceta": 0, "Provo": False},
+    {"Nombre": "Combo Bunker Doble", "Medallones": 2, "Cheddar": 4, "Panceta": 0, "Provo": False},
+    {"Nombre": "Combo Bunker Triple", "Medallones": 3, "Cheddar": 6, "Panceta": 0, "Provo": False},
+    {"Nombre": "Extremo Simple c/ Panceta", "Medallones": 1, "Cheddar": 2, "Panceta": 2, "Provo": False},
+    {"Nombre": "Extremo Doble c/ Panceta", "Medallones": 2, "Cheddar": 4, "Panceta": 2, "Provo": False},
+    {"Nombre": "Extremo Triple c/ Panceta", "Medallones": 3, "Cheddar": 6, "Panceta": 2, "Provo": False},
+    {"Nombre": "De Barrio Simple", "Medallones": 1, "Cheddar": 2, "Panceta": 0, "Provo": False},
+    {"Nombre": "De Barrio Doble", "Medallones": 2, "Cheddar": 4, "Panceta": 0, "Provo": False},
+    {"Nombre": "Provo Burguer Simple", "Medallones": 1, "Cheddar": 2, "Panceta": 2, "Provo": True},
+    {"Nombre": "Provo Burguer Doble", "Medallones": 2, "Cheddar": 4, "Panceta": 2, "Provo": True},
+    {"Nombre": "Provo Burguer Cuádruple", "Medallones": 4, "Cheddar": 8, "Panceta": 2, "Provo": True},
+]
+
+# Procesar datos
+tabla_datos = []
+for c in combos:
+    costo_total = calcular_costo_combo(c["Medallones"], c["Cheddar"], c["Panceta"], c["Provo"])
+    precio_wa = costo_total * multiplicador_margen
+    precio_pya = precio_wa / (1 - comision_pedidosya)
     
-    precio_unitario = COMBOS[combo_sel]["precio"]
-    costo_unitario = COMBOS[combo_sel]["costo"]
+    tabla_datos.append({
+        "Producto / Combo": c["Nombre"],
+        "Costo Total Insumos": f"${costo_total:,.2f}",
+        "Precio Venta WhatsApp": f"${round(precio_wa, -2):,.0f}",
+        "Precio Venta PedidosYa": f"${round(precio_pya, -2):,.0f}",
+        "Ganancia Bruta (WA)": f"${(precio_wa - costo_total):,.2f}"
+    })
+
+# ==========================================
+# 3. INTERFAZ Y VISUALIZACIÓN
+# ==========================================
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("📋 Precios Sugeridos por Combo")
+    df_combos = pd.DataFrame(tabla_datos)
+    st.dataframe(df_combos, use_container_width=True, hide_index=True)
+
+with col2:
+    st.subheader("🧮 Simulación de Incremento de Carne")
+    st.write(f"**Precio actual del medallón:** ${precio_carne:,.2f}")
     
-    total_venta = precio_unitario * cantidad
-    total_ganancia = (precio_unitario - costo_unitario) * cantidad
-
-    st.info(f"💰 **Total:** ${total_venta:,.2f}  |  **Ganancia:** ${total_ganancia:,.2f}")
-
-    if st.button("🚀 REGISTRAR VENTA"):
-        hora_actual = datetime.datetime.now().strftime("%H:%M:%S")
-        st.session_state.ventas.append({
-            "Hora": hora_actual,
-            "Producto": combo_sel,
-            "Cantidad": cantidad,
-            "Pago": metodo_pago,
-            "Total": total_venta,
-            "Ganancia": total_ganancia
-        })
-        st.success(f"¡Venta de {combo_sel} registrada con éxito!")
-
-# --- TAB 2: CALCULADORA ---
-with tab2:
-    st.subheader("Calculadora Personalizada")
-    precio_custom = st.number_input("Precio de Venta ($)", min_value=0, value=5000, step=100)
-    costo_custom = st.number_input("Costo de Insumos ($)", min_value=0, value=2000, step=100)
-    cant_custom = st.number_input("Cantidad de unidades", min_value=1, value=1, step=1)
-
-    ganancia_custom = (precio_custom - costo_custom) * cant_custom
+    nuevo_precio_carne = st.number_input("Probar si la carne sube a ($):", value=precio_carne + 200.0, step=50.0)
+    diferencia = nuevo_precio_carne - precio_carne
     
-    st.metric("Ganancia Total Estimada", f"${ganancia_custom:,.2f}")
-
-# --- TAB 3: RESUMEN DIARIO ---
-with tab3:
-    st.subheader("Resumen de la Jornada")
-    if st.session_state.ventas:
-        df = pd.DataFrame(st.session_state.ventas)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Total Recaudado", f"${df['Total'].sum():,.2f}")
-        with col2:
-            st.metric("Ganancia Limpia", f"${df['Ganancia'].sum():,.2f}")
-
-        st.dataframe(df, use_container_width=True)
-        
-        if st.button("🗑️ Limpiar historial del día"):
-            st.session_state.ventas = []
-            st.experimental_rerun()
-    else:
-        st.write("Aún no se registraron ventas hoy.")
+    st.warning(f"Aumento por medallón: +${diferencia:,.2f}")
+    st.write(f"* **Combo Simple:** Subirá +${(diferencia * multiplicador_margen):,.0f} en WhatsApp")
+    st.write(f"* **Combo Doble:** Subirá +${(diferencia * 2 * multiplicador_margen):,.0f} en WhatsApp")
+    st.write(f"* **Combo Triple:** Subirá +${(diferencia * 3 * multiplicador_margen):,.0f} en WhatsApp")
