@@ -2,92 +2,92 @@ import streamlit as st
 import pandas as pd
 import datetime
 
-st.set_page_config(page_title="Bunker App", page_icon="🍔", layout="wide")
+# Configuración de página
+st.set_page_config(page_title="Bunker - Control de Ventas", page_icon="🍔", layout="centered")
 
-# Estilos visuales
+# Estilos personalizados
 st.markdown("""
 <style>
-    .main-header { font-size: 2.2rem; font-weight: 800; color: #1E1E1E; text-align: center; }
-    .sub-header { font-size: 1rem; color: #E63946; text-align: center; font-weight: 600; margin-bottom: 2rem; }
-    .stButton>button { width: 100%; background-color: #E63946; color: white; font-weight: bold; border-radius: 8px; height: 3em; border: none; }
+    .main-header { font-size: 2.2rem; font-weight: bold; color: #E63946; text-align: center; margin-bottom: 0px; }
+    .sub-header { font-size: 1rem; color: #8D99AE; text-align: center; margin-bottom: 20px; }
+    .stButton>button { width: 100%; background-color: #E63946; color: white; border-radius: 8px; font-weight: bold; height: 3em; }
+    .metric-card { background-color: #1E1E1E; padding: 15px; border-radius: 10px; border: 1px solid #333; text-align: center; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<div class='main-header'>🍔 BUNKER APP</div>", unsafe_allow_html=True)
-st.markdown("<div class='sub-header'>CONTROL DE VENTAS, COSTOS Y CANALES</div>", unsafe_allow_html=True)
+# Título Principal
+st.markdown("<div class='main-header'>🍔 BUNKER</div>", unsafe_allow_html=True)
+st.markdown("<div class='sub-header'>CONTROL DE VENTAS Y COSTOS</div>", unsafe_allow_html=True)
 
-tabs = st.tabs(["⚡ Despacho Rápido", "🧮 Calculadora de Combos", "📊 Balance & Caja", "⚙️ Gastos Fijos"])
+# Base de datos local de Combos (Precios y Costos para ganancia exacta)
+COMBOS = {
+    "Simple Bunker": {"precio": 6300, "costo": 2100},
+    "Doble Bunker": {"precio": 8200, "costo": 2800},
+    "Triple Bunker": {"precio": 9900, "costo": 3500},
+    "Combo Extremo": {"precio": 12500, "costo": 4200}
+}
 
+# Inicializar historial de ventas en la sesión
 if 'ventas' not in st.session_state:
     st.session_state.ventas = []
 
-if 'combos' not in st.session_state:
-    st.session_state.combos = {
-        "Simple Bunker": {"costo_insumos": 2100, "markup_wa": 3.0, "comision_peya": 0.30},
-        "Doble Bunker": {"costo_insumos": 3200, "markup_wa": 3.0, "comision_peya": 0.30},
-        "Triple Bunker": {"costo_insumos": 4366, "markup_wa": 3.0, "comision_peya": 0.30},
-        "Combo Extremo": {"costo_insumos": 4800, "markup_wa": 3.0, "comision_peya": 0.30},
-    }
+# Solapas principales
+tab1, tab2, tab3 = st.tabs(["⚡ Despacho Rápido", "🧮 Calculadora", "📊 Resumen diario"])
 
-if 'gastos_fijos' not in st.session_state:
-    st.session_state.gastos_fijos = {"Alquiler": 250000, "Luz / Gas": 80000, "Monotributo": 30000}
-
-# 1. Despacho
-with tabs[0]:
+# --- TAB 1: DESPACHO RÁPIDO ---
+with tab1:
     st.subheader("Cargar Venta")
-    combo_sel = st.selectbox("Combo", list(st.session_state.combos.keys()))
-    canal = st.radio("Canal", ["WhatsApp / Local", "PedidosYa"], horizontal=True)
-    cantidad = st.number_input("Cantidad", min_value=1, value=1)
+    combo_sel = st.selectbox("Combo", list(COMBOS.keys()))
+    cantidad = st.number_input("Cantidad", min_value=1, value=1, step=1)
+    metodo_pago = st.radio("Método de pago", ["Efectivo", "Transferencia / QR"], horizontal=True)
     
-    info = st.session_state.combos[combo_sel]
-    costo_unit = info["costo_insumos"]
+    precio_unitario = COMBOS[combo_sel]["precio"]
+    costo_unitario = COMBOS[combo_sel]["costo"]
     
-    if "WhatsApp" in canal:
-        precio_unit = costo_unit * info["markup_wa"]
-        comision_unit = 0
-    else:
-        precio_base = costo_unit * info["markup_wa"]
-        precio_unit = precio_base / (1 - info["comision_peya"])
-        comision_unit = precio_unit * info["comision_peya"]
-        
-    precio_total = precio_unit * cantidad
-    costo_total = costo_unit * cantidad
-    comision_total = comision_unit * cantidad
-    ganancia = precio_total - costo_total - comision_total
+    total_venta = precio_unitario * cantidad
+    total_ganancia = (precio_unitario - costo_unitario) * cantidad
 
-    st.info(f"💰 **Total:** ${precio_total:,.2f} | **Ganancia Directa:** ${ganancia:,.2f}")
-    
+    st.info(f"💰 **Total:** ${total_venta:,.2f}  |  **Ganancia:** ${total_ganancia:,.2f}")
+
     if st.button("🚀 REGISTRAR VENTA"):
+        hora_actual = datetime.datetime.now().strftime("%H:%M:%S")
         st.session_state.ventas.append({
-            "Fecha": datetime.datetime.now().strftime("%H:%M:%S"),
-            "Combo": combo_sel,
-            "Canal": canal,
+            "Hora": hora_actual,
+            "Producto": combo_sel,
             "Cantidad": cantidad,
-            "Total": precio_total,
-            "Ganancia": ganancia
+            "Pago": metodo_pago,
+            "Total": total_venta,
+            "Ganancia": total_ganancia
         })
-        st.success("¡Venta registrada!")
+        st.success(f"¡Venta de {combo_sel} registrada con éxito!")
 
-# 2. Calculadora
-with tabs[1]:
-    st.subheader("Combos y Precios")
-    for c_nombre, c_data in st.session_state.combos.items():
-        p_wa = c_data["costo_insumos"] * c_data["markup_wa"]
-        p_peya = p_wa / (1 - c_data["comision_peya"])
-        st.write(f"**{c_nombre}** | Costo: ${c_data['costo_insumos']} | WA: ${p_wa:,.2f} | PeYa: ${p_peya:,.2f}")
+# --- TAB 2: CALCULADORA ---
+with tab2:
+    st.subheader("Calculadora Personalizada")
+    precio_custom = st.number_input("Precio de Venta ($)", min_value=0, value=5000, step=100)
+    costo_custom = st.number_input("Costo de Insumos ($)", min_value=0, value=2000, step=100)
+    cant_custom = st.number_input("Cantidad de unidades", min_value=1, value=1, step=1)
 
-# 3. Balance
-with tabs[2]:
-    st.subheader("Balance del Día")
+    ganancia_custom = (precio_custom - costo_custom) * cant_custom
+    
+    st.metric("Ganancia Total Estimada", f"${ganancia_custom:,.2f}")
+
+# --- TAB 3: RESUMEN DIARIO ---
+with tab3:
+    st.subheader("Resumen de la Jornada")
     if st.session_state.ventas:
         df = pd.DataFrame(st.session_state.ventas)
-        st.dataframe(df)
-        st.metric("Total Ventas", f"${df['Total'].sum():,.2f}")
-        st.metric("Ganancia acumulada", f"${df['Ganancia'].sum():,.2f}")
-    else:
-        st.write("Sin ventas registradas hoy.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Total Recaudado", f"${df['Total'].sum():,.2f}")
+        with col2:
+            st.metric("Ganancia Limpia", f"${df['Ganancia'].sum():,.2f}")
 
-# 4. Gastos
-with tabs[3]:
-    st.subheader("Gastos Fijos")
-    st.json(st.session_state.gastos_fijos)
+        st.dataframe(df, use_container_width=True)
+        
+        if st.button("🗑️ Limpiar historial del día"):
+            st.session_state.ventas = []
+            st.experimental_rerun()
+    else:
+        st.write("Aún no se registraron ventas hoy.")
