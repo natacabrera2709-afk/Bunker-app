@@ -1,89 +1,149 @@
 import streamlit as st
 import pandas as pd
+import datetime
 
-# Configuración de la página
-st.set_page_config(page_title="Bunker - Gestión de Costos", layout="wide")
+st.set_page_config(page_title="Bunker - Gestión Comercial", layout="wide")
 
-st.title("🍔 Bunker - Control de Costos y Precios")
-st.caption("Modificá los precios base en la barra lateral para recalcular todo el menú al instante.")
+st.title("🍔 Bunker - App de Gestión Integral")
+
+# --- 1. BASE DE DATOS Y ESTADO DE LA APP ---
+if 'insumos' not in st.session_state:
+    st.session_state.insumos = pd.DataFrame([
+        {"Insumo": "Medallón de Carne 90g", "Costo Unitario ($)": 1260.82},
+        {"Insumo": "Pan de Papa 10cm", "Costo Unitario ($)": 410.00},
+        {"Insumo": "Queso Cheddar (feta)", "Costo Unitario ($)": 151.12},
+        {"Insumo": "Panceta Ahumada", "Costo Unitario ($)": 282.62},
+        {"Insumo": "Papas 150g", "Costo Unitario ($)": 780.00},
+        {"Insumo": "Packaging / Aderezos", "Costo Unitario ($)": 1500.00}
+    ])
+
+if 'ventas' not in st.session_state:
+    st.session_state.ventas = pd.DataFrame(columns=[
+        "Fecha", "Producto", "Canal", "Cantidad", "Precio Unitario ($)", 
+        "Costo Insumo ($)", "Total Venta ($)", "Total Insumo ($)", "Comisión ($)"
+    ])
+
+if 'gastos_fijos' not in st.session_state:
+    st.session_state.gastos_fijos = pd.DataFrame([
+        {"Concepto": "Alquiler", "Monto ($)": 0.0},
+        {"Concepto": "Luz / Gas / Agua", "Monto ($)": 0.0},
+        {"Concepto": "Sueldos / Empleados", "Monto ($)": 0.0},
+        {"Concepto": "Publicidad / Ads", "Monto ($)": 0.0}
+    ])
+
+# Pestañas del Sistema
+tab_ventas, tab_historial, tab_insumos, tab_gastos, tab_balance = st.tabs([
+    "🛒 Registrar Venta", 
+    "📜 Historial de Ventas", 
+    "🥩 Carga de Insumos", 
+    "💡 Gastos Fijos", 
+    "📊 Balance General"
+])
 
 # ==========================================
-# 1. MATRIZ DE INSUMOS BASE (Sidebar)
+# MÓDULO 1: CARGA DE INSUMOS Y PRECIOS
 # ==========================================
-st.sidebar.header("⚙️ Precios Base de Insumos")
+with tab_insumos:
+    st.header("Modificación y Carga de Insumos Base")
+    st.caption("Cambiá los precios acá y se actualizarán automáticamente en los costos de cada combo.")
+    st.session_state.insumos = st.data_editor(st.session_state.insumos, num_rows="dynamic", use_container_width=True)
 
-precio_carne = st.sidebar.number_input("Medallón de Carne 90g ($)", value=1260.82, step=50.0)
-precio_pan = st.sidebar.number_input("Pan de Papa 10cm ($)", value=410.00, step=20.0)
-precio_cheddar = st.sidebar.number_input("Queso Cheddar (feta) ($)", value=151.12, step=10.0)
-precio_panceta = st.sidebar.number_input("Panceta Ahumada ($)", value=282.62, step=20.0)
-precio_provolone = st.sidebar.number_input("Queso Dambo / Provo ($)", value=151.12, step=10.0)
-precio_papas = st.sidebar.number_input("Papas 150g ($)", value=780.00, step=50.0)
+# Cálculo dinámico de costos por producto según la tabla de insumos
+def obtener_costo_combo(carne_qty, cheddar_qty, panceta_qty=0):
+    ins = st.session_state.insumos.set_index("Insumo")["Costo Unitario ($)"].to_dict()
+    c_carne = ins.get("Medallón de Carne 90g", 0) * carne_qty
+    c_pan = ins.get("Pan de Papa 10cm", 0)
+    c_cheddar = ins.get("Queso Cheddar (feta)", 0) * cheddar_qty
+    c_panceta = ins.get("Panceta Ahumada", 0) * panceta_qty
+    c_papas = ins.get("Papas 150g", 0)
+    c_pack = ins.get("Packaging / Aderezos", 0)
+    return c_carne + c_pan + c_cheddar + c_panceta + c_papas + c_pack
 
-st.sidebar.divider()
-st.sidebar.header("📈 Márgenes y Comisiones")
-multiplicador_margen = st.sidebar.number_input("Multiplicador de Costo (Ej: 3x)", value=3.0, step=0.1)
-comision_pedidosya = st.sidebar.slider("Comisión PedidosYa (%)", min_value=15.0, max_value=35.0, value=30.0) / 100
-
-# Packaging e insumos fijos promedio por combo (Caja, papel, sobres, potes)
-costo_packaging_fijo = 1500.00
+# Carta de productos de Bunker
+combos_config = {
+    "Combo Bunker Simple": {"carne": 1, "cheddar": 2, "panceta": 0, "p_wa": 13100.0, "p_pya": 18714.29},
+    "Combo Bunker Doble": {"carne": 2, "cheddar": 4, "panceta": 0, "p_wa": 17800.0, "p_pya": 25428.57},
+    "Combo Bunker Triple": {"carne": 3, "cheddar": 6, "panceta": 0, "p_wa": 22500.0, "p_pya": 32142.86},
+    "Combo Extremo Simple": {"carne": 1, "cheddar": 2, "panceta": 2, "p_wa": 15900.0, "p_pya": 22714.29},
+    "Combo Extremo Doble": {"carne": 2, "cheddar": 4, "panceta": 2, "p_wa": 20600.0, "p_pya": 29428.57},
+    "Combo Provo Burguer Doble": {"carne": 2, "cheddar": 4, "panceta": 2, "p_wa": 19500.0, "p_pya": 27857.14},
+    "Combo Provo Burguer Cuádruple": {"carne": 4, "cheddar": 8, "panceta": 2, "p_wa": 28900.0, "p_pya": 41285.71},
+}
 
 # ==========================================
-# 2. LÓGICA DE CÁLCULO DE RECETAS
+# MÓDULO 2: REGISTRAR VENTAS
 # ==========================================
-def calcular_costo_combo(medallones, cheddar, panceta=0, es_provo=False, incluye_papas=True):
-    queso_costo = precio_provolone if es_provo else precio_cheddar
-    costo_hamb = (medallones * precio_carne) + precio_pan + (cheddar * queso_costo) + (panceta * precio_panceta)
-    costo_extra = precio_papas if incluye_papas else 0
-    return costo_hamb + costo_extra + costo_packaging_fijo
-
-# Definición de la carta de combos
-combos = [
-    {"Nombre": "Combo Bunker Simple", "Medallones": 1, "Cheddar": 2, "Panceta": 0, "Provo": False},
-    {"Nombre": "Combo Bunker Doble", "Medallones": 2, "Cheddar": 4, "Panceta": 0, "Provo": False},
-    {"Nombre": "Combo Bunker Triple", "Medallones": 3, "Cheddar": 6, "Panceta": 0, "Provo": False},
-    {"Nombre": "Extremo Simple c/ Panceta", "Medallones": 1, "Cheddar": 2, "Panceta": 2, "Provo": False},
-    {"Nombre": "Extremo Doble c/ Panceta", "Medallones": 2, "Cheddar": 4, "Panceta": 2, "Provo": False},
-    {"Nombre": "Extremo Triple c/ Panceta", "Medallones": 3, "Cheddar": 6, "Panceta": 2, "Provo": False},
-    {"Nombre": "De Barrio Simple", "Medallones": 1, "Cheddar": 2, "Panceta": 0, "Provo": False},
-    {"Nombre": "De Barrio Doble", "Medallones": 2, "Cheddar": 4, "Panceta": 0, "Provo": False},
-    {"Nombre": "Provo Burguer Simple", "Medallones": 1, "Cheddar": 2, "Panceta": 2, "Provo": True},
-    {"Nombre": "Provo Burguer Doble", "Medallones": 2, "Cheddar": 4, "Panceta": 2, "Provo": True},
-    {"Nombre": "Provo Burguer Cuádruple", "Medallones": 4, "Cheddar": 8, "Panceta": 2, "Provo": True},
-]
-
-# Procesar datos
-tabla_datos = []
-for c in combos:
-    costo_total = calcular_costo_combo(c["Medallones"], c["Cheddar"], c["Panceta"], c["Provo"])
-    precio_wa = costo_total * multiplicador_margen
-    precio_pya = precio_wa / (1 - comision_pedidosya)
+with tab_ventas:
+    st.header("Cargar Pedido de Hamburguesas")
     
-    tabla_datos.append({
-        "Producto / Combo": c["Nombre"],
-        "Costo Total Insumos": f"${costo_total:,.2f}",
-        "Precio Venta WhatsApp": f"${round(precio_wa, -2):,.0f}",
-        "Precio Venta PedidosYa": f"${round(precio_pya, -2):,.0f}",
-        "Ganancia Bruta (WA)": f"${(precio_wa - costo_total):,.2f}"
-    })
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        prod_sel = st.selectbox("Producto / Combo", list(combos_config.keys()))
+    with col2:
+        canal_sel = st.radio("Canal de Venta", ["WhatsApp", "PedidosYa"])
+    with col3:
+        cant_sel = st.number_input("Cantidad Vendida", min_value=1, value=1)
+
+    cfg = combos_config[prod_sel]
+    costo_u = obtener_costo_combo(cfg["carne"], cfg["cheddar"], cfg["panceta"])
+    precio_u = cfg["p_wa"] if canal_sel == "WhatsApp" else cfg["p_pya"]
+    comision_u = 0.0 if canal_sel == "WhatsApp" else precio_u * 0.30
+
+    st.warning(f"📌 **Resumen:** Costo Insumo Unitario: **${costo_u:,.2f}** | Precio Venta Unitario: **${precio_u:,.2f}**")
+
+    if st.button("🛒 Marcar Venta y Guardar en Historial", use_container_width=True):
+        nueva_venta = {
+            "Fecha": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "Producto": prod_sel,
+            "Canal": canal_sel,
+            "Cantidad": cant_sel,
+            "Precio Unitario ($)": precio_u,
+            "Costo Insumo ($)": costo_u,
+            "Total Venta ($)": precio_u * cant_sel,
+            "Total Insumo ($)": costo_u * cant_sel,
+            "Comisión ($)": comision_u * cant_sel
+        }
+        st.session_state.ventas = pd.concat([st.session_state.ventas, pd.DataFrame([nueva_venta])], ignore_index=True)
+        st.success(f"¡Venta de {cant_sel}x {prod_sel} registrada exitosamente!")
 
 # ==========================================
-# 3. INTERFAZ Y VISUALIZACIÓN
+# MÓDULO 3: HISTORIAL DE VENTAS
 # ==========================================
-col1, col2 = st.columns([2, 1])
+with tab_historial:
+    st.header("Historial Completo de Ventas")
+    if st.session_state.ventas.empty:
+        st.info("Todavía no registraste ninguna venta.")
+    else:
+        st.dataframe(st.session_state.ventas, use_container_width=True)
 
-with col1:
-    st.subheader("📋 Precios Sugeridos por Combo")
-    df_combos = pd.DataFrame(tabla_datos)
-    st.dataframe(df_combos, use_container_width=True, hide_index=True)
+# ==========================================
+# MÓDULO 4: GASTOS FIJOS
+# ==========================================
+with tab_gastos:
+    st.header("Registro de Gastos Fijos (Mensuales)")
+    st.session_state.gastos_fijos = st.data_editor(st.session_state.gastos_fijos, num_rows="dynamic", use_container_width=True)
 
-with col2:
-    st.subheader("🧮 Simulación de Incremento de Carne")
-    st.write(f"**Precio actual del medallón:** ${precio_carne:,.2f}")
+# ==========================================
+# MÓDULO 5: BALANCE FINANCIERO GENERAL
+# ==========================================
+with tab_balance:
+    st.header("Estado de Resultados y Ganancias")
     
-    nuevo_precio_carne = st.number_input("Probar si la carne sube a ($):", value=precio_carne + 200.0, step=50.0)
-    diferencia = nuevo_precio_carne - precio_carne
+    tot_v = st.session_state.ventas["Total Venta ($)"].sum() if not st.session_state.ventas.empty else 0.0
+    tot_i = st.session_state.ventas["Total Insumo ($)"].sum() if not st.session_state.ventas.empty else 0.0
+    tot_c = st.session_state.ventas["Comisión ($)"].sum() if not st.session_state.ventas.empty else 0.0
+    tot_gf = st.session_state.gastos_fijos["Monto ($)"].sum()
     
-    st.warning(f"Aumento por medallón: +${diferencia:,.2f}")
-    st.write(f"* **Combo Simple:** Subirá +${(diferencia * multiplicador_margen):,.0f} en WhatsApp")
-    st.write(f"* **Combo Doble:** Subirá +${(diferencia * 2 * multiplicador_margen):,.0f} en WhatsApp")
-    st.write(f"* **Combo Triple:** Subirá +${(diferencia * 3 * multiplicador_margen):,.0f} en WhatsApp")
+    ganancia_neta = tot_v - tot_i - tot_c - tot_gf
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Ventas Totales Brutas", f"${tot_v:,.2f}")
+    m2.metric("Total Gastos en Insumos", f"${tot_i:,.2f}")
+    m3.metric("Comisiones PedidosYa", f"${tot_c:,.2f}")
+    m4.metric("Total Gastos Fijos", f"${tot_gf:,.2f}")
+
+    st.divider()
+    if ganancia_neta >= 0:
+        st.success(f"### 💵 Ganancia Neta Real: ${ganancia_neta:,.2f}")
+    else:
+        st.error(f"### ⚠️ Pérdida / Deficit: ${ganancia_neta:,.2f}")
